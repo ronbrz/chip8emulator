@@ -11,23 +11,11 @@
 (def st 0); sound timer
 (def stack (list)) ; list of numbers
                    ;
-(def clear-display (vec (repeat 64 (vec (repeat 32 0)))));; 64x32 display initialized to 0;
+(def clear-display (vec (repeat 32 (vec (repeat 64 0)))));; 64x32 display initialized to 0;
 
 ;; millis
 ;; (System/currentTimeMillis)
 ;;
-
-;; entire initial machine state
-(def chip8 {:memory (vec (repeat 512 0))
-            :registers (vec (repeat 16 0))
-            :pc 0
-            :i (vec (repeat 16 0)) ;; i is at i[0], but can have up to 16 offsets?
-            :dt 0
-            :st 0
-            :wait false
-            :stack (list)
-            :display (vec (repeat 64 (vec (repeat 32 0))))})
-
 ;; keys used for keyboard
 (def keycodes {
                :1 0x1 :2 0x2 :3 0x3 :4 0xC
@@ -52,6 +40,20 @@
 (def D     [0xE0 0x90 0x90 0x90 0xE0])
 (def E     [0xF0 0x80 0xF0 0x80 0xF0])
 (def F     [0xF0 0x80 0xF0 0x80 0x80])
+
+;; memory is defined as a vector full of numbers, each number being a byte
+(def initmemory (vec (concat zero one two three four five six seven eight nine A B C D E F (repeat 4016 0))))
+
+;; entire initial machine state
+(def chip8 {:memory initmemory
+            :registers (vec (repeat 16 0))
+            :pc 0
+            :i 0
+            :dt 0
+            :st 0
+            :wait false
+            :stack (list)
+            :display (vec (repeat 32 (vec (repeat 64 0))))})
 
 ;;;;;;;;;;;;;;;; Chip-8 instructions ;;;;;;;;;;;;;;;;
 
@@ -81,7 +83,7 @@
 
 ;; skip next instruction if register value doesn't equal passed value
 (defn skip-not-equal-byte [machine register b]
-  (let [rval ((machine :registers) register)]
+  (let [rVal ((machine :registers) register)]
     (cond
       (not= rVal b) (update machine :pc #(+ 2 %))
       :else (update machine :pc inc))))
@@ -247,50 +249,115 @@
   (assoc machine :st ((machine :registers) register)))
 
 ;; add value from register to i, store in i
+;; Fx1E
 (defn addi
   [machine register]
   (let [rVal ((machine :registers) register)
         iVal ((machine :i) 0)
         sumVals (bit-and (+ rVal iVal) 0xFF)]
-    (assoc-in machine [:i 0] sumVals)))
+    (assoc machine :i sumVals)))
 
 ;; store BCD representation of Vx in i
+;; Fx33
 (defn bcdi
   [machine register]
   (let [rVal ((machine :registers) register)
+        iAddr (machine :i)
         hundreds (quot rVal 100)
         tens    (mod (quot rVal 10) 10)
         ones    (mod rVal 10)]
     (assoc-in
      (assoc-in
-      (assoc-in machine [:i 0] hundreds)
-      [:i 1] tens)
-     [:i 2] ones)))
-
-;; store values from V0 to Vx in i0 to ix
-(defn load-to-i
-  [machine topr]
-  (let [registers (machine :registers)
-        iaddrs    (machine :i)
-        updatedIs (copy-first-n iaddrs registers topr)]
-    (assoc machine :i updatedIs)))
-
-(defn read-from-i
-  [machine topr]
-  (let [registers (machine :registers)
-        iaddrs    (machine :i)
-        updatedRs (copy-first-n iaddrs registers topr)]
-    (assoc machine :registers updatedRs)))
-
-
-
-
+      (assoc-in machine [:registers iAddr] hundreds)
+      [:registers (inc iAddr)] tens)
+     [:registers (+ 2 iAddr)] ones)))
 
 ;;;;;;;; helper
 (defn copy-first-n
   [vec1 vec2 n]
-  (let [numTake (inc n)])
-  (vec (concat (take numTake vec2) (drop numTake vec1))))
+  (let [numTake (inc n)]
+    (vec (concat (take numTake vec2) (drop numTake vec1)))))
+
+;; store values from V0 to Vx in i0 to ix
+;; Fx55
+(defn load-to-i
+  [machine topr]
+  (let [registers (machine :registers)
+        iAddr    (machine :i)
+        copiedRegisters (take (inc topr) registers)
+        iAddrs (iterate inc iAddr)
+        toAssign (interleave iAddrs copiedRegisters)
+        newMemory (apply assoc (machine :memory) toAssign)]
+    (assoc machine :memory newMemory)))
+
+(defn right-most-bit
+  [num]
+  (if (odd? num) 1 0))
+
+(defn num-to-binary-vec
+  [num]
+  (vec (reverse (take 8 (iterate #(bit-shift-right % 1) num)))))
+
+;; xor two vectors representing binary numbers
+(defn xor-positions
+  [vec1 vec2 first-index]
+  (let [index (mod first-index (count vec1))
+        v1Val (vec1 index)
+        v2Val (first vec2)
+        xordVal (bit-xor v1Val v2Val)]
+    (cond
+      (empty? vec2) vec1
+      :else (assoc (xor-positions vec1 (rest vec2) (inc index)) index xordVal))))
+
+(defn xor-y-positions
+  [screen sprite xCoord yCoord]
+  (let [index (mod yCoord (count screen))]
+    (cond
+      (empty? sprite) screen
+      :else (update (xor-y-positions screen (rest sprite) xCoord (inc yCoord))
+                    index xor-positions (first sprite) xCoord))))
+
+
+;; draw sprite to screen
+;; Dxyn
+;; TODO: update Vf register on screen change
+(defn draw
+  [machine xCoord yCoord numBytes]
+  (let [iAddr (machine :i)
+        byteAddrs (take numBytes (iterate inc iAddr))
+        spriteBytes (map (machine :memory) byteAddrs)
+        newScreen (xor-y-positions (machine :display) spriteBytes xCoord yCoord)]
+  (assoc machine :display newScreen)))
+
+;; Fx65
+(defn read-from-i
+  [machine topr]
+  (let [registers (machine :registers)
+        iAddr    (machine :i)
+        copiedAddrs (take (inc topr) (iterate inc (machine :i)))
+        updatedRs (apply assoc (interleave (range (inc topr)) copiedAddrs) registers)]
+    (assoc machine :registers updatedRs)))
+
+(defn load-digit-sprite
+  [machine digit]
+  (case digit
+    0x0 (assoc-in machine [:i 0] 0)
+    0x1 (assoc-in machine [:i 0] 5)
+    0x2 (assoc-in machine [:i 0] 10)
+    0x3 (assoc-in machine [:i 0] 15)
+    0x4 (assoc-in machine [:i 0] 20)
+    0x5 (assoc-in machine [:i 0] 25)
+    0x6 (assoc-in machine [:i 0] 30)
+    0x7 (assoc-in machine [:i 0] 35)
+    0x8 (assoc-in machine [:i 0] 40)
+    0x9 (assoc-in machine [:i 0] 45)
+    0xA (assoc-in machine [:i 0] 50)
+    0xB (assoc-in machine [:i 0] 55)
+    0xC (assoc-in machine [:i 0] 60)
+    0xD (assoc-in machine [:i 0] 65)
+    0xE (assoc-in machine [:i 0] 70)
+    0xF (assoc-in machine [:i 0] 75)))
+
 
 
 
@@ -299,7 +366,7 @@
 ;;;;;;;;;;;;;;;; draw ;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;; all arithmatic operations should be masked with 0xFF
 ;;;;;;;;;;;;;;;; inc pc on all required commands
-;;;;;;;;;;;;;;;; Fx29
+;;;;;;;;;;;;;;;;
 (defn file->bytes [file]
   (with-open [xin (io/input-stream file)
               xout (java.io.ByteArrayOutputStream.)]
