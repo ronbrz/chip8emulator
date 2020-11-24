@@ -14,7 +14,7 @@
 (def stack (list)) ; list of numbers
                    ;
 (def clear-display (vec (repeat 32 (vec (repeat 64 0)))));; 64x32 display initialized to 0;
-
+(def full-display (vec (repeat 32 (vec (repeat 64 1)))))
 ;; millis
 ;; (System/currentTimeMillis)
 ;;
@@ -55,7 +55,7 @@
             :st 0
             :wait false
             :stack (list)
-            :display (vec (repeat 32 (vec (repeat 64 0))))})
+            :display clear-display})
 
 (defn incpc [machine]
   (update machine :pc #(+ 2 %)))
@@ -333,18 +333,18 @@
 
 (defn num-to-binary-vec
   [num]
-  (vec (reverse (take 8 (iterate #(bit-shift-right % 1) num)))))
+  (vec (map right-most-bit (reverse (take 8 (iterate #(bit-shift-right % 1) num))))))
 
 ;; xor two vectors representing binary numbers
 (defn xor-positions
   [vec1 vec2 first-index]
-  (let [index (mod first-index (count vec1))
-        v1Val (vec1 index)
-        v2Val (first vec2)
-        xordVal (bit-xor v1Val v2Val)]
-    (cond
-      (empty? vec2) vec1
-      :else (assoc (xor-positions vec1 (rest vec2) (inc index)) index xordVal))))
+  (cond
+    (empty? vec2) vec1
+    :else (let [index (mod first-index (count vec1))
+                v1Val (vec1 index)
+                v2Val (first vec2)
+                xordVal (bit-xor v1Val v2Val)]
+            (assoc (xor-positions vec1 (rest vec2) (inc index)) index xordVal))))
 
 (defn xor-y-positions
   [screen sprite xCoord yCoord]
@@ -363,7 +363,8 @@
   (let [iAddr (machine :i)
         byteAddrs (take numBytes (iterate inc iAddr))
         spriteBytes (map (machine :memory) byteAddrs)
-        newScreen (xor-y-positions (machine :display) spriteBytes xCoord yCoord)]
+        sprite-vecs (map num-to-binary-vec spriteBytes)
+        newScreen (xor-y-positions (machine :display) sprite-vecs xCoord yCoord)]
     (incpc
      (assoc
       (cond
@@ -535,7 +536,7 @@
   (let [gameVec (getByteVector "/home/ronbrz/code/chip8/games/MAZE")
         gameMem (copy-into initmemory gameVec)]
     (assoc chip8 :memory gameMem)))
-;(println (Integer/toUnsignedString c1 16) (Integer/toUnsignedString c2 16))
+
 (defn draw-display
   [machine]
   (let [display (machine :display)
@@ -544,15 +545,16 @@
         c2      ((machine :memory) (inc pc))]
     (q/background 255)
     (q/fill 0)
-
-    (println (machine :display))
+    (println (Integer/toUnsignedString c1 16) (Integer/toUnsignedString c2 16))
     (doseq [x (range 64)
             y (range 32)]
       (let [pixel ((display y) x)
             xCoord (* x 10)
             yCoord (* y 10)]
         (cond
-          (= pixel 1) (q/rect xCoord yCoord 10 10))))))
+          (= pixel 1) (let [width 10]
+                        (println xCoord yCoord)
+                        (q/rect xCoord yCoord width width)))))))
 
 (defn update-machine
   [machine]
