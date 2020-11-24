@@ -419,7 +419,7 @@
 (defn get-opcode
   [machine]
   (let [byte1 ((machine :memory) (machine :pc))
-        byte2 ((machine :memory) (machine :pc))]
+        byte2 ((machine :memory) (inc (machine :pc)))]
     (two-bytes-four-bits byte1 byte2)))
 
 (defn zero-ops
