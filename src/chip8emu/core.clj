@@ -1,6 +1,8 @@
 (ns chip8emu.core
   (:gen-class)
-  (:require [clojure.java.io :as io]))
+  (:require [clojure.java.io :as io]
+            [quil.core :as q :include-macros true]
+            [quil.middleware :as m]))
 
 (def memory (vec (repeat 512 0))) ;; first 512 bytes reserved for interpreter
 ;; (into (vec (repeat 63 0)) (vec (file->bytes game))) ; append game data to vector
@@ -58,23 +60,28 @@
 ;;;;;;;;;;;;;;;; Chip-8 instructions ;;;;;;;;;;;;;;;;
 
 ;;; clear the display
+;;; 00E0
 (defn cls [machine]
   (assoc machine :display clear-display))
 
 ;;; return from a subroutine
+;;; 00EE
 (defn ret [{stack :stack, :as machine}]
   (let [pc (first stack)]
     (assoc (update machine :stack rest) :pc pc)))
 
 ;;; jump to address
+;;; 1nnn
 (defn jp [machine addr]
   (assoc machine :pc addr))
 
 ;;; call subroutine at addr
+;;; 2nnn
 (defn call [machine addr]
   (assoc (update machine :stack conj (machine :pc)) :pc addr))
 
 ;;; skip next instruction if register value equals passed value
+;;; 3xkk
 (defn skip-equal-byte [machine register b]
   (let [rVal ((machine :registers) register)]
     (cond
@@ -82,6 +89,7 @@
       :else (update machine :pc inc))))
 
 ;; skip next instruction if register value doesn't equal passed value
+;; 4xkk
 (defn skip-not-equal-byte [machine register b]
   (let [rVal ((machine :registers) register)]
     (cond
@@ -89,6 +97,7 @@
       :else (update machine :pc inc))))
 
 ;; skip next instruction if registers passed are equal
+;; 5xy0
 (defn skip-equal-registers [machine r1 r2]
   (let [r1Val ((machine :registers) r1)
         r2Val ((machine :registers) r2)]
@@ -97,18 +106,22 @@
       :else (update machine :pc inc))))
 
 ;; put value into register
+;; 6xkk
 (defn load-register-byte [machine register b]
   (assoc-in machine [:registers register] b))
 
 ;; add value to register
+;; 7xkk
 (defn add-register-byte [machine register b]
   (update-in machine [:registers register] #(+ b %)))
 
 ;; set register 1 to value in register 2
+;; 8xy0
 (defn copy-register [machine r1 r2]
   (assoc-in machine [:registers r1] ((machine :registers) r2)))
 
 ;; perform bitwise or on r1 and r2 values, store result in r1
+;; 8xy1
 (defn or-register [machine r1 r2]
   (let [r1Val ((machine :registers) r1)
         r2Val ((machine :registers) r2)
@@ -116,6 +129,7 @@
     (assoc-in machine [:registers r1] orVal)))
 
 ;; perform bitwise and on r1 and r2 values, store result in r1
+;; 8xy2
 (defn and-register [machine r1 r2]
   (let [r1Val ((machine :registers) r1)
         r2Val ((machine :registers) r2)
@@ -123,6 +137,7 @@
     (assoc-in machine [:registers r1] andVal)))
 
 ;; perform xor on r1 and r2 values, store result in r1
+;; 8xy3
 (defn xor-register [machine r1 r2]
   (let [r1Val ((machine :registers) r1)
         r2Val ((machine :registers) r2)
@@ -131,6 +146,7 @@
 
 ;; add r1 and r2 registers, and store in r1. If result is > 8 bits, set VF to 1
 ;; can only add up to 255
+;; 8xy4
 (defn add-registers [machine r1 r2]
   (let [r1Val ((machine :registers) r1)
         r2Val ((machine :registers) r2)
@@ -144,6 +160,7 @@
 
 ;; subtract r2 from r1, and store in r1.
 ;; if r2 > r1, set VF to 1
+;; 8xy5
 (defn sub-registers [machine r1 r2]
   (let [r1Val ((machine :registers) r1)
         r2Val ((machine :registers) r2)
@@ -285,6 +302,7 @@
   (let [registers (machine :registers)
         iAddr    (machine :i)
         copiedRegisters (take (inc topr) registers)
+
         iAddrs (iterate inc iAddr)
         toAssign (interleave iAddrs copiedRegisters)
         newMemory (apply assoc (machine :memory) toAssign)]
@@ -358,10 +376,6 @@
     0xE (assoc-in machine [:i 0] 70)
     0xF (assoc-in machine [:i 0] 75)))
 
-
-
-
-
 ;;;;;;;;;;;;;;;; TODO ;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;; draw ;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;; all arithmatic operations should be masked with 0xFF
@@ -382,19 +396,63 @@
 (defn fourbits [barr]
   (mapcat (fn [a] [(bit-shift-right a 4) (bit-and 2r1111 a)]) barr))
 
-
 (defn appendbytes
   ([b1 b2] (bit-xor (bit-shift-left b1 4) b2))
   ([b1 b2 b3] (bit-xor (bit-shift-left b1 8) (bit-shift-left b2 4) b3)))
 
 (defn printBytes [barr]
-  (map #(println (Integer/toUnsignedString % 2)) barr))
+  (dorun (map #(println (Integer/toUnsignedString % 2)) barr)))
 
 (defn printHex [barr]
-  (map #(println (Integer/toUnsignedString % 16)) barr))
+  (dorun (map #(println (Integer/toUnsignedString % 16))  barr)))
+
+(defn copy-into
+  [v1 v2]
+  (let [intSpace (take 512 v1)
+        zeroRest (- 4095 (count v2))]
+    (vec (concat intSpace v2 (repeat zeroRest 0)))))
 
 
-(defn -main
-  "I don't do a whole lot ... yet."
-  [& args]
-  (file->bytes "/home/ronbrz/code/chip8/games/MAZE"))
+;; (defn -main
+;;   "I don't do a whole lot ... yet."
+;;   [& args]
+;;   (printHex (file->bytes "/home/ronbrz/code/chip8/games/MAZE")))
+(def width 640)
+(def height 320)
+
+(defn draw-display
+  [machine]
+  (let [display (machine :display)]
+    (q/background 255)
+    (q/fill 0)
+    (doseq [x (range 64)
+            y (range 32)]
+      (let [pixel ((display y) x)
+            xCoord (* x 10)
+            yCoord (* y 10)]
+        (cond
+          (= pixel 1) (q/rect xCoord yCoord 10 10))))))
+
+(defn leaf-fn [t]
+  (let [r (* 1.5 t (q/cos t) (q/sin t))]
+    [(* r (q/cos t))
+     (* r (q/tan t))]))
+
+(defn setup []
+  (q/frame-rate 500)
+  (q/background 255))
+
+(defn draw []
+  (q/with-translation [(/ (q/width) 2) 10]
+    (let [t (/ (q/frame-count) 10)]
+      (println (q/frame-count))
+      (q/line (leaf-fn t) (leaf-fn (+ t 0.1))))))
+
+(defn -main [& args]
+  (q/sketch
+   :host "host"
+   :size [width height]
+   :setup setup
+   :draw draw
+   )
+  )
