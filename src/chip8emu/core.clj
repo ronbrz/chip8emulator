@@ -127,10 +127,7 @@
       0xC (random-register machine b2 (append-bytes b3 b4))
       0xD (draw machine b2 b3 b4)
       0xE (e-ops machine command keypressed? key-symbol)
-      0xF (f-ops machine command keypressed? key-symbol)
-     )
-    )
-  )
+      0xF (f-ops machine command keypressed? key-symbol))))
 
 
 ;;;;;;;;;;;;;;;; Chip-8 instructions ;;;;;;;;;;;;;;;;
@@ -138,12 +135,12 @@
 ;;; ignored
 ;;; 0NNN
 (defn ignored [machine]
-  machine)
+  (incpc machine))
 
 ;;; clear the display
 ;;; 00E0
 (defn cls [machine]
-  (assoc machine :display clear-display))
+  (incpc (assoc machine :display clear-display)))
 
 ;;; return from a subroutine
 ;;; 00EE
@@ -166,16 +163,16 @@
 (defn skip-equal-byte [machine register b]
   (let [rVal ((machine :registers) register)]
     (cond
-      (= rVal b) (update machine :pc #(+ 2 %))
-      :else (update machine :pc inc))))
+      (= rVal b) (incpc (incpc machine))
+      :else (incpc machine))))
 
 ;; skip next instruction if register value doesn't equal passed value
 ;; 4xkk
 (defn skip-not-equal-byte [machine register b]
   (let [rVal ((machine :registers) register)]
     (cond
-      (not= rVal b) (update machine :pc #(+ 2 %))
-      :else (update machine :pc inc))))
+      (not= rVal b) (incpc (incpc machine))
+      :else (incpc machine))))
 
 ;; skip next instruction if registers passed are equal
 ;; 5xy0
@@ -183,23 +180,23 @@
   (let [r1Val ((machine :registers) r1)
         r2Val ((machine :registers) r2)]
     (cond
-      (= r1Val r2Val) (update machine :pc #(+ 2 %))
-      :else (update machine :pc inc))))
+      (= r1Val r2Val) (incpc (incpc machine))
+      :else (incpc machine))))
 
 ;; put value into register
 ;; 6xkk
 (defn load-register-byte [machine register b]
-  (assoc-in machine [:registers register] b))
+  (incpc (assoc-in machine [:registers register] b)))
 
 ;; add value to register
 ;; 7xkk
 (defn add-register-byte [machine register b]
-  (update-in machine [:registers register] #(+ b %)))
+  (incpc (update-in machine [:registers register] #(+ b %))))
 
 ;; set register 1 to value in register 2
 ;; 8xy0
 (defn copy-register [machine r1 r2]
-  (assoc-in machine [:registers r1] ((machine :registers) r2)))
+  (incpc (assoc-in machine [:registers r1] ((machine :registers) r2))))
 
 ;; perform bitwise or on r1 and r2 values, store result in r1
 ;; 8xy1
@@ -207,7 +204,7 @@
   (let [r1Val ((machine :registers) r1)
         r2Val ((machine :registers) r2)
         orVal (bit-or r1Val r2Val)]
-    (assoc-in machine [:registers r1] orVal)))
+    (incpc (assoc-in machine [:registers r1] orVal))))
 
 ;; perform bitwise and on r1 and r2 values, store result in r1
 ;; 8xy2
@@ -215,7 +212,7 @@
   (let [r1Val ((machine :registers) r1)
         r2Val ((machine :registers) r2)
         andVal (bit-and r1Val r2Val)]
-    (assoc-in machine [:registers r1] andVal)))
+    (incpc (assoc-in machine [:registers r1] andVal))))
 
 ;; perform xor on r1 and r2 values, store result in r1
 ;; 8xy3
@@ -223,7 +220,7 @@
   (let [r1Val ((machine :registers) r1)
         r2Val ((machine :registers) r2)
         xorVal (bit-xor r1Val r2Val)]
-    (assoc-in machine [:registers r1] xorVal)))
+    (incpc (assoc-in machine [:registers r1] xorVal))))
 
 ;; add r1 and r2 registers, and store in r1. If result is > 8 bits, set VF to 1
 ;; can only add up to 255
@@ -232,12 +229,12 @@
   (let [r1Val ((machine :registers) r1)
         r2Val ((machine :registers) r2)
         addVal (+ r1Val r2Val)]
-    (assoc-in
-     (cond
-      (> addVal 255) (assoc-in machine [:registers 0xF] 1)
-      :else (assoc-in machine [:registers 0xF] 0))
-     [:registers r1]
-     (bit-and 0xFF addVal))))
+    (incpc (assoc-in
+            (cond
+              (> addVal 255) (assoc-in machine [:registers 0xF] 1)
+              :else (assoc-in machine [:registers 0xF] 0))
+            [:registers r1]
+            (bit-and 0xFF addVal)))))
 
 ;; subtract r2 from r1, and store in r1.
 ;; if r2 > r1, set VF to 1
@@ -246,22 +243,22 @@
   (let [r1Val ((machine :registers) r1)
         r2Val ((machine :registers) r2)
         subVal (mod (- r1Val r2Val) 0x100)]
-    (assoc-in
-     (cond
-      (> r2Val r1Val) (assoc-in machine [:registers 0xF] 1)
-      :else (assoc-in machine [:registers 0xF] 0)))
-    [:registers r1]
-    subVal))
+    (incpc (assoc-in
+            (cond
+              (> r2Val r1Val) (assoc-in machine [:registers 0xF] 1)
+              :else (assoc-in machine [:registers 0xF] 0))
+            [:registers r1]
+            subVal))))
 
 ;; shift register right
 ;; 8xy6
 (defn shift-right-register [machine register]
   (let [rVal ((machine :registers) register)]
-    (update-in
-     (cond
-      (odd? rVal) (assoc-in machine [:registers 0xF] 1)
-      :else (assoc-in machine [:registers 0xF] 0))
-     [:registers register] bit-shift-right 1)))
+    (incpc (update-in
+            (cond
+              (odd? rVal) (assoc-in machine [:registers 0xF] 1)
+              :else (assoc-in machine [:registers 0xF] 0))
+            [:registers register] bit-shift-right 1))))
 
 ;; subtract r1 from r2, store in r1
 ;; if r1 > r2 set vF to 1
@@ -270,37 +267,37 @@
   (let [r1Val ((machine :registers) r1)
         r2Val ((machine :registers) r2)
         subVal (mod (- r2Val r1Val) 0x100)]
-    (assoc-in
-     (cond
-       (> r2Val r1Val) (assoc-in machine [:registers 0xF] 1)
-       :else (assoc-in machine [:registers 0xF] 0)))
-    [:registers r1]
-    subVal))
+    (incpc (assoc-in
+            (cond
+              (> r2Val r1Val) (assoc-in machine [:registers 0xF] 1)
+              :else (assoc-in machine [:registers 0xF] 0))
+            [:registers r1]
+            subVal))))
 
 ;; shift left, if most significant bit is 1, set vf to 1
 ;; 8xyE
 (defn shift-left-register [machine register]
   (let [rVal ((machine :registers) register)
         msbSet (= (bit-and 0x80 rVal) 0x80)] ;; most-significant bit set
-    (update-in
-     (cond
-      msbSet (assoc-in machine [:registers 0xF] 1)
-      :else (assoc-in machine [:registers 0xF] 0))
-     [:registers register]
-     #(bit-and 0xFF (bit-shift-left % 1)))))
+    (incpc (update-in
+            (cond
+              msbSet (assoc-in machine [:registers 0xF] 1)
+              :else (assoc-in machine [:registers 0xF] 0))
+            [:registers register]
+            #(bit-and 0xFF (bit-shift-left % 1))))))
 
 ;; 9xy0
 (defn skip-next-instruction-not-equal [machine r1 r2]
   (let [r1Val ((machine :registers) r1)
         r2Val ((machine :registers) r2)]
     (cond
-      (= r1Val r2Val) (update-in machine :pc #(+ 2 %))
-      :else (update machine :pc inc))))
+      (= r1Val r2Val) (incpc (incpc machine))
+      :else (incpc machine))))
 
 ;; set i register
 ;; Annn
 (defn set-i [machine addr]
-  (assoc machine :i addr))
+  (incpc (assoc machine :i addr)))
 
 
 ;; jump to location + v0
@@ -316,45 +313,45 @@
   [machine register mask]
   (let [randnum (rand-int 0x100)
         masked (bit-and randnum mask)]
-    (assoc-in machine [:registers register] masked)))
+    (incpc (assoc-in machine [:registers register] masked))))
 
 ;; Ex9E
 (defn skip-if-keypressed
   [machine keypressed? key-code key-symbol]
   (cond
-    (and keypressed? (= (keycodes key-symbol) key-code)) (update machine :pc #(+ 2 %))
-    :else (update machine :pc inc)))
+    (and keypressed? (= (keycodes key-symbol) key-code)) (incpc (incpc machine))
+    :else (incpc machine)))
 
 ;; ExA1
 (defn skip-if-notkeypressed
   [machine keypressed? key-code key-symbol]
   (cond
-    (not (and keypressed? (= (keycodes key-symbol) key-code))) (update machine :pc #(+ 2 %))
-    :else (update machine :pc inc)))
+    (not (and keypressed? (= (keycodes key-symbol) key-code))) (incpc (incpc machine))
+    :else (incpc machine)))
 
 ;; Fx07
 (defn loaddt
   [{dt :dt, :as machine} register]
-  (assoc-in machine [:registers register] dt))
+  (incpc (assoc-in machine [:registers register] dt)))
 
 ;; Wait for key press, don't increment pc!
 ;; Fx0A
 (defn key-wait
   [machine register keypressed? key-symbol]
   (cond
-    keypressed? (assoc-in machine [:registers register] (keycodes key-symbol))
+    keypressed? (incpc (assoc-in machine [:registers register] (keycodes key-symbol)))
     :else machine))
 
 ;; set DT from register value
 ;; Fx15
 (defn setdt
   [machine register]
-  (assoc machine :dt ((machine :registers) register)))
+  (incpc (assoc machine :dt ((machine :registers) register))))
 
 ;; Fx18
 (defn setst
   [machine register]
-  (assoc machine :st ((machine :registers) register)))
+  (incpc (assoc machine :st ((machine :registers) register))))
 
 ;; add value from register to i, store in i
 ;; Fx1E
@@ -363,7 +360,7 @@
   (let [rVal ((machine :registers) register)
         iVal ((machine :i) 0)
         sumVals (bit-and (+ rVal iVal) 0xFF)]
-    (assoc machine :i sumVals)))
+    (incpc (assoc machine :i sumVals))))
 
 ;; store BCD representation of Vx in i
 ;; Fx33
@@ -374,11 +371,11 @@
         hundreds (quot rVal 100)
         tens    (mod (quot rVal 10) 10)
         ones    (mod rVal 10)]
-    (assoc-in
-     (assoc-in
-      (assoc-in machine [:registers iAddr] hundreds)
-      [:registers (inc iAddr)] tens)
-     [:registers (+ 2 iAddr)] ones)))
+    (incpc (assoc-in
+            (assoc-in
+             (assoc-in machine [:registers iAddr] hundreds)
+             [:registers (inc iAddr)] tens)
+            [:registers (+ 2 iAddr)] ones))))
 
 ;;;;;;;; helper
 (defn copy-first-n
@@ -397,7 +394,7 @@
         iAddrs (iterate inc iAddr)
         toAssign (interleave iAddrs copiedRegisters)
         newMemory (apply assoc (machine :memory) toAssign)]
-    (assoc machine :memory newMemory)))
+    (incpc (assoc machine :memory newMemory))))
 
 (defn right-most-bit
   [num]
@@ -436,7 +433,12 @@
         byteAddrs (take numBytes (iterate inc iAddr))
         spriteBytes (map (machine :memory) byteAddrs)
         newScreen (xor-y-positions (machine :display) spriteBytes xCoord yCoord)]
-  (assoc machine :display newScreen)))
+    (incpc
+     (assoc
+      (cond
+        (not= newScreen (machine :display)) (assoc-in machine [:registers 0xF] 1);; erased mean any change?
+        :else (assoc-in machine [:registers 0xF] 0))
+      :display newScreen))))
 
 ;; Fx65
 (defn read-from-i
@@ -445,12 +447,14 @@
         iAddr    (machine :i)
         copiedAddrs (take (inc topr) (iterate inc (machine :i)))
         updatedRs (apply assoc (interleave (range (inc topr)) copiedAddrs) registers)]
-    (assoc machine :registers updatedRs)))
+    (incpc
+     (assoc machine :registers updatedRs))))
 
 ;; Fx29
 (defn load-digit-sprite
   [machine digit]
-  (case digit
+  (incpc
+   (case digit
     0x0 (assoc-in machine [:i 0] 0)
     0x1 (assoc-in machine [:i 0] 5)
     0x2 (assoc-in machine [:i 0] 10)
@@ -466,13 +470,11 @@
     0xC (assoc-in machine [:i 0] 60)
     0xD (assoc-in machine [:i 0] 65)
     0xE (assoc-in machine [:i 0] 70)
-    0xF (assoc-in machine [:i 0] 75)))
+    0xF (assoc-in machine [:i 0] 75))))
 
 ;;;;;;;;;;;;;;;; TODO ;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;; draw ;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;; all arithmatic operations should be masked with 0xFF
-;;;;;;;;;;;;;;;; inc pc on all required commands
-;;;;;;;;;;;;;;;;
+
 (defn file->bytes [file]
   (with-open [xin (io/input-stream file)
               xout (java.io.ByteArrayOutputStream.)]
