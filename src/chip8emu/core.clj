@@ -57,7 +57,88 @@
             :stack (list)
             :display (vec (repeat 32 (vec (repeat 64 0))))})
 
+(defn incpc [machine]
+  (update machine :pc #(+ 2 %)))
+
+(defn get-opcode
+  [machine]
+  (let [byte1 ((machine :memory) (machine :pc))
+        byte2 ((machine :memory) (machine :pc))]
+    (two-bytes-four-bits byte1 byte2)))
+
+(defn zero-ops
+  [machine [b1 b2 b3 b4]]
+  (case b4
+    0x0 (cls machine)
+    0xE (ret machine)
+    machine))
+
+(defn eight-ops
+  [machine [b1 b2 b3 b4]]
+  (case b4
+    0x0 (copy-register machine b2 b3)
+    0x1 (or-register machine b2 b3)
+    0x2 (and-register machine b2 b3)
+    0x3 (xor-registers machine b2 b3)
+    0x4 (add-registers machine b2 b3)
+    0x5 (sub-registers machine b2 b3)
+    0x6 (shift-right-register machine b2)
+    0x7 (sub-registers-rev machine b2 b3)
+    0xE (shift-left-register machine b2)))
+
+(defn e-ops
+  [machine [b1 b2 b3 b4] keypressed? key-symbol]
+  (case b3
+    0x9 (skip-if-keypressed machine keypressed? b2 key-symbol)
+    0xA (skip-if-not-keypressed machine keypressed? b2 key-symbol)))
+
+(defn f-ops
+  [machine [b1 b2 b3 b4] keypressed? key-symbol]
+  (let [command (append-bytes b3 b4)]
+    (case command
+      0x07 (loaddt machine b2)
+      0x0A (key-wait machine b2 keypressed? key-symbol)
+      0x15 (setdt machine b2)
+      0x18 (setst machine b2)
+      0x1E (addi machine b2)
+      0x29 (load-digit-sprite machine b2)
+      0x33 (bcdi machine b2)
+      0x55 (load-to-i machine b2)
+      0x65 (read-from-i machine b2))))
+
+
+;; TODO : if waiting dont tick
+(defn tick
+  [machine keypressed? key-symbol]
+  (let [[b1 b2 b3 b4 :as command] (get-opcode machine)]
+    (case b1
+      0x0 (zero-ops machine command)
+      0x1 (jp machine (append-bytes b2 b3 b4))
+      0x2 (call machine (append-bytes b2 b3 b4))
+      0x3 (skip-equal-byte machine b2 (append-bytes b3 b4))
+      0x4 (skip-not-equal-byte machine b2 (append-bytes b3 b4))
+      0x5 (skip-equal-registers machine b2 b3)
+      0x6 (load-register-byte machine b2 (append-bytes b3 b4))
+      0x7 (add-register-byte machine b2 (append-bytes b3 b4))
+      0x8 (eight-ops machine command)
+      0x9 (skip-next-instruction-not-equal machine b2 b3)
+      0xA (set-i machine (append-bytes b2 b3 b4))
+      0xB (jump-v0 machine (append-bytes b2 b3 b4))
+      0xC (random-register machine b2 (append-bytes b3 b4))
+      0xD (draw machine b2 b3 b4)
+      0xE (e-ops machine command keypressed? key-symbol)
+      0xF (f-ops machine command keypressed? key-symbol)
+     )
+    )
+  )
+
+
 ;;;;;;;;;;;;;;;; Chip-8 instructions ;;;;;;;;;;;;;;;;
+
+;;; ignored
+;;; 0NNN
+(defn ignored [machine]
+  machine)
 
 ;;; clear the display
 ;;; 00E0
@@ -173,6 +254,7 @@
     subVal))
 
 ;; shift register right
+;; 8xy6
 (defn shift-right-register [machine register]
   (let [rVal ((machine :registers) register)]
     (update-in
@@ -183,6 +265,7 @@
 
 ;; subtract r1 from r2, store in r1
 ;; if r1 > r2 set vF to 1
+;; 8xy7
 (defn sub-registers-rev [machine r1 r2]
   (let [r1Val ((machine :registers) r1)
         r2Val ((machine :registers) r2)
@@ -195,6 +278,7 @@
     subVal))
 
 ;; shift left, if most significant bit is 1, set vf to 1
+;; 8xyE
 (defn shift-left-register [machine register]
   (let [rVal ((machine :registers) register)
         msbSet (= (bit-and 0x80 rVal) 0x80)] ;; most-significant bit set
@@ -205,7 +289,7 @@
      [:registers register]
      #(bit-and 0xFF (bit-shift-left % 1)))))
 
-
+;; 9xy0
 (defn skip-next-instruction-not-equal [machine r1 r2]
   (let [r1Val ((machine :registers) r1)
         r2Val ((machine :registers) r2)]
@@ -214,42 +298,47 @@
       :else (update machine :pc inc))))
 
 ;; set i register
+;; Annn
 (defn set-i [machine addr]
   (assoc machine :i addr))
 
 
 ;; jump to location + v0
+;; Bnnn
 (defn jump-v0 [machine addr]
   (let [v0 ((machine :registers) 0)
         jmploc (+ v0 addr)]
     (assoc machine :pc jmploc)))
 
 ;; generate random number, store in register
+;; Cxnn
 (defn random-register
   [machine register mask]
   (let [randnum (rand-int 0x100)
         masked (bit-and randnum mask)]
     (assoc-in machine [:registers register] masked)))
 
-
+;; Ex9E
 (defn skip-if-keypressed
   [machine keypressed? key-code key-symbol]
   (cond
     (and keypressed? (= (keycodes key-symbol) key-code)) (update machine :pc #(+ 2 %))
     :else (update machine :pc inc)))
 
-
+;; ExA1
 (defn skip-if-notkeypressed
   [machine keypressed? key-code key-symbol]
   (cond
     (not (and keypressed? (= (keycodes key-symbol) key-code))) (update machine :pc #(+ 2 %))
     :else (update machine :pc inc)))
 
+;; Fx07
 (defn loaddt
   [{dt :dt, :as machine} register]
   (assoc-in machine [:registers register] dt))
 
 ;; Wait for key press, don't increment pc!
+;; Fx0A
 (defn key-wait
   [machine register keypressed? key-symbol]
   (cond
@@ -257,10 +346,12 @@
     :else machine))
 
 ;; set DT from register value
+;; Fx15
 (defn setdt
   [machine register]
   (assoc machine :dt ((machine :registers) register)))
 
+;; Fx18
 (defn setst
   [machine register]
   (assoc machine :st ((machine :registers) register)))
@@ -356,6 +447,7 @@
         updatedRs (apply assoc (interleave (range (inc topr)) copiedAddrs) registers)]
     (assoc machine :registers updatedRs)))
 
+;; Fx29
 (defn load-digit-sprite
   [machine digit]
   (case digit
@@ -396,7 +488,12 @@
 (defn fourbits [barr]
   (mapcat (fn [a] [(bit-shift-right a 4) (bit-and 2r1111 a)]) barr))
 
-(defn appendbytes
+(defn two-bytes-four-bits
+  [b1 b2]
+  [(bit-shift-right b1 4) (bit-and 2r1111 b1)
+   (bit-shift-right b2 4) (bit-and 2r1111 b2)])
+
+(defn append-bytes
   ([b1 b2] (bit-xor (bit-shift-left b1 4) b2))
   ([b1 b2 b3] (bit-xor (bit-shift-left b1 8) (bit-shift-left b2 4) b3)))
 
