@@ -290,9 +290,10 @@
 (defn addi
   [machine register]
   (let [rVal ((machine :registers) register)
-        iVal (machine :i)
+        iAddr (machine :i)
+        iVal ((machine :memory) iAddr)
         sumVals (bit-and (+ rVal iVal) 0xFF)]
-    (incpc (assoc machine :i sumVals))))
+    (incpc (assoc-in machine [:memory iAddr] sumVals))))
 
 ;; store BCD representation of Vx in i
 ;; Fx33
@@ -305,9 +306,9 @@
         ones    (mod rVal 10)]
     (incpc (assoc-in
             (assoc-in
-             (assoc-in machine [:registers iAddr] hundreds)
-             [:registers (inc iAddr)] tens)
-            [:registers (+ 2 iAddr)] ones))))
+             (assoc-in machine [:memory iAddr] hundreds)
+             [:memory (inc iAddr)] tens)
+            [:memory (+ 2 iAddr)] ones))))
 
 ;;;;;;;; helper
 (defn copy-first-n
@@ -380,8 +381,9 @@
   [machine topr]
   (let [registers (machine :registers)
         iAddr    (machine :i)
-        copiedAddrs (take (inc topr) (iterate inc (machine :i)))
-        updatedRs (apply assoc (interleave (range (inc topr)) copiedAddrs) registers)]
+        copiedAddrs (take topr (iterate inc (machine :i)))
+        addrValues (map (machine :memory) copiedAddrs)
+        updatedRs (apply assoc registers (interleave (range topr) addrValues))]
     (incpc
      (assoc machine :registers updatedRs))))
 
@@ -390,24 +392,22 @@
   [machine digit]
   (incpc
    (case digit
-    0x0 (assoc-in machine [:i 0] 0)
-    0x1 (assoc-in machine [:i 0] 5)
-    0x2 (assoc-in machine [:i 0] 10)
-    0x3 (assoc-in machine [:i 0] 15)
-    0x4 (assoc-in machine [:i 0] 20)
-    0x5 (assoc-in machine [:i 0] 25)
-    0x6 (assoc-in machine [:i 0] 30)
-    0x7 (assoc-in machine [:i 0] 35)
-    0x8 (assoc-in machine [:i 0] 40)
-    0x9 (assoc-in machine [:i 0] 45)
-    0xA (assoc-in machine [:i 0] 50)
-    0xB (assoc-in machine [:i 0] 55)
-    0xC (assoc-in machine [:i 0] 60)
-    0xD (assoc-in machine [:i 0] 65)
-    0xE (assoc-in machine [:i 0] 70)
-    0xF (assoc-in machine [:i 0] 75))))
-
-
+    0x0 (assoc machine :i 0)
+    0x1 (assoc machine :i 5)
+    0x2 (assoc machine :i 10)
+    0x3 (assoc machine :i 15)
+    0x4 (assoc machine :i 20)
+    0x5 (assoc machine :i 25)
+    0x6 (assoc machine :i 30)
+    0x7 (assoc machine :i 35)
+    0x8 (assoc machine :i 40)
+    0x9 (assoc machine :i 45)
+    0xA (assoc machine :i 50)
+    0xB (assoc machine :i 55)
+    0xC (assoc machine :i 60)
+    0xD (assoc machine :i 65)
+    0xE (assoc machine :i 70)
+    0xF (assoc machine :i 75))))
 
 
 (defn two-bytes-four-bits
