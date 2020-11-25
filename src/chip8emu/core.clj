@@ -122,7 +122,7 @@
 ;; add value to register
 ;; 7xkk
 (defn add-register-byte [machine register b]
-  (incpc (update-in machine [:registers register] #(+ b %))))
+  (incpc (update-in machine [:registers register] #(bit-and (+ b %) 0xFF))))
 
 ;; set register 1 to value in register 2
 ;; 8xy0
@@ -228,6 +228,7 @@
 ;; set i register
 ;; Annn
 (defn set-i [machine addr]
+  (println "i: " (Integer/toUnsignedString addr 16))
   (incpc (assoc machine :i addr)))
 
 
@@ -289,7 +290,7 @@
 (defn addi
   [machine register]
   (let [rVal ((machine :registers) register)
-        iVal ((machine :i) 0)
+        iVal (machine :i)
         sumVals (bit-and (+ rVal iVal) 0xFF)]
     (incpc (assoc machine :i sumVals))))
 
@@ -359,11 +360,13 @@
 ;; Dxyn
 ;; TODO: only set to unset should flip VF
 (defn draw
-  [machine xCoord yCoord numBytes]
+  [machine xVec yVec numBytes]
   (let [iAddr (machine :i)
         byteAddrs (take numBytes (iterate inc iAddr))
         spriteBytes (map (machine :memory) byteAddrs)
         sprite-vecs (map num-to-binary-vec spriteBytes)
+        xCoord ((machine :registers) xVec)
+        yCoord ((machine :registers) yVec)
         newScreen (xor-y-positions (machine :display) sprite-vecs xCoord yCoord)]
     (incpc
      (assoc
@@ -467,6 +470,7 @@
 (defn tick
   [machine keypressed? key-symbol]
   (let [[b1 b2 b3 b4 :as command] (get-opcode machine)]
+    (println "cmd: " (map #(Integer/toUnsignedString % 16) command))
     (case b1
       0x0 (zero-ops machine command)
       0x1 (jp machine (append-bytes b2 b3 b4))
@@ -533,7 +537,7 @@
 (defn setup []
   (q/frame-rate 150)
   (q/background 255)
-  (let [gameVec (getByteVector "/home/ronbrz/code/chip8/games/MAZE")
+  (let [gameVec (getByteVector "/home/ronbrz/code/chip8/games/BLINKY")
         gameMem (copy-into initmemory gameVec)]
     (assoc chip8 :memory gameMem)))
 
@@ -545,7 +549,8 @@
         c2      ((machine :memory) (inc pc))]
     (q/background 255)
     (q/fill 0)
-    (println (Integer/toUnsignedString c1 16) (Integer/toUnsignedString c2 16))
+    ;(println (Integer/toUnsignedString c1 16) (Integer/toUnsignedString c2 16))
+    ;(println "stack: " (machine :stack))
     (doseq [x (range 64)
             y (range 32)]
       (let [pixel ((display y) x)
