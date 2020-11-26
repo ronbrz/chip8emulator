@@ -200,7 +200,7 @@
         subVal (mod (- r2Val r1Val) 0x100)]
     (incpc (assoc-in
             (cond
-              (> r2Val r1Val) (assoc-in machine [:registers 0xF] 1)
+              (> r1Val r2Val) (assoc-in machine [:registers 0xF] 1)
               :else (assoc-in machine [:registers 0xF] 0))
             [:registers r1]
             subVal))))
@@ -222,7 +222,7 @@
   (let [r1Val ((machine :registers) r1)
         r2Val ((machine :registers) r2)]
     (cond
-      (= r1Val r2Val) (incpc (incpc machine))
+      (not= r1Val r2Val) (incpc (incpc machine))
       :else (incpc machine))))
 
 ;; set i register
@@ -291,9 +291,8 @@
   [machine register]
   (let [rVal ((machine :registers) register)
         iAddr (machine :i)
-        iVal ((machine :memory) iAddr)
-        sumVals (bit-and (+ rVal iVal) 0xFF)]
-    (incpc (assoc-in machine [:memory iAddr] sumVals))))
+        sumVals (+ rVal iAddr)]
+    (incpc (assoc machine :i sumVals))))
 
 ;; store BCD representation of Vx in i
 ;; Fx33
@@ -357,57 +356,70 @@
                     index xor-positions (first sprite) xCoord))))
 
 
+
+(defn unset-bit-h
+  [before-v after-v]
+  (not-every? false? (map (fn [b a] (and (= b 1) (= a 0))) before-v after-v)))
+
+;; return true if any bits from old screen changed from 1 to 0
+(defn unset-bits
+  [before-screen after-screen]
+  (not-every? false? (map unset-bit-h before-screen after-screen)))
+
+
 ;; draw sprite to screen
 ;; Dxyn
 ;; TODO: only set to unset should flip VF
 (defn draw
-  [machine xVec yVec numBytes]
+  [machine Vx Vy numBytes]
   (let [iAddr (machine :i)
         byteAddrs (take numBytes (iterate inc iAddr))
         spriteBytes (map (machine :memory) byteAddrs)
         sprite-vecs (map num-to-binary-vec spriteBytes)
-        xCoord ((machine :registers) xVec)
-        yCoord ((machine :registers) yVec)
+        xCoord ((machine :registers) Vx)
+        yCoord ((machine :registers) Vy)
         newScreen (xor-y-positions (machine :display) sprite-vecs xCoord yCoord)]
     (incpc
      (assoc
       (cond
-        (not= newScreen (machine :display)) (assoc-in machine [:registers 0xF] 1);; erased mean any change?
+        (unset-bits (machine :display) newScreen) (assoc-in machine [:registers 0xF] 1)
         :else (assoc-in machine [:registers 0xF] 0))
       :display newScreen))))
+
 
 ;; Fx65
 (defn read-from-i
   [machine topr]
   (let [registers (machine :registers)
         iAddr    (machine :i)
-        copiedAddrs (take topr (iterate inc (machine :i)))
+        copiedAddrs (take (inc topr) (iterate inc (machine :i)))
         addrValues (map (machine :memory) copiedAddrs)
-        updatedRs (apply assoc registers (interleave (range topr) addrValues))]
+        updatedRs (apply assoc registers (interleave (range (inc topr)) addrValues))]
     (incpc
      (assoc machine :registers updatedRs))))
 
 ;; Fx29
 (defn load-digit-sprite
-  [machine digit]
-  (incpc
-   (case digit
-    0x0 (assoc machine :i 0)
-    0x1 (assoc machine :i 5)
-    0x2 (assoc machine :i 10)
-    0x3 (assoc machine :i 15)
-    0x4 (assoc machine :i 20)
-    0x5 (assoc machine :i 25)
-    0x6 (assoc machine :i 30)
-    0x7 (assoc machine :i 35)
-    0x8 (assoc machine :i 40)
-    0x9 (assoc machine :i 45)
-    0xA (assoc machine :i 50)
-    0xB (assoc machine :i 55)
-    0xC (assoc machine :i 60)
-    0xD (assoc machine :i 65)
-    0xE (assoc machine :i 70)
-    0xF (assoc machine :i 75))))
+  [machine register]
+  (let [digit ((machine :registers) register)]
+    (incpc
+     (case digit
+       0x0 (assoc machine :i 0)
+       0x1 (assoc machine :i 5)
+       0x2 (assoc machine :i 10)
+       0x3 (assoc machine :i 15)
+       0x4 (assoc machine :i 20)
+       0x5 (assoc machine :i 25)
+       0x6 (assoc machine :i 30)
+       0x7 (assoc machine :i 35)
+       0x8 (assoc machine :i 40)
+       0x9 (assoc machine :i 45)
+       0xA (assoc machine :i 50)
+       0xB (assoc machine :i 55)
+       0xC (assoc machine :i 60)
+       0xD (assoc machine :i 65)
+       0xE (assoc machine :i 70)
+       0xF (assoc machine :i 75)))))
 
 
 (defn two-bytes-four-bits
@@ -490,6 +502,14 @@
       0xF (f-ops machine command keypressed? key-symbol))))
 
 
+(defn delay-tick
+  [machine keypressed? key-symbol]
+  (let [dt (machine :dt)]
+    (cond
+      (> dt 0) (update machine :dt dec)
+      :else (tick machine keypressed? key-symbol))))
+
+
 
 ;;;;;;;;;;;;;;;; TODO ;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;; all arithmatic operations should be masked with 0xFF
@@ -564,6 +584,7 @@
 (defn update-machine
   [machine]
   (tick machine q/key-pressed? q/key-as-keyword))
+  (delay-tick machine q/key-pressed? q/key-as-keyword))
 
 (defn -main [& args]
   (q/sketch
