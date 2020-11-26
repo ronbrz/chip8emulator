@@ -77,7 +77,7 @@
 ;;; 00EE
 (defn ret [{stack :stack, :as machine}]
   (let [pc (first stack)]
-    (assoc (update machine :stack rest) :pc pc)))
+    (incpc (assoc (update machine :stack rest) :pc pc))))
 
 ;;; jump to address
 ;;; 1nnn
@@ -176,7 +176,7 @@
         subVal (mod (- r1Val r2Val) 0x100)]
     (incpc (assoc-in
             (cond
-              (> r2Val r1Val) (assoc-in machine [:registers 0xF] 1)
+              (> r1Val r2Val) (assoc-in machine [:registers 0xF] 1)
               :else (assoc-in machine [:registers 0xF] 0))
             [:registers r1]
             subVal))))
@@ -200,7 +200,7 @@
         subVal (mod (- r2Val r1Val) 0x100)]
     (incpc (assoc-in
             (cond
-              (> r1Val r2Val) (assoc-in machine [:registers 0xF] 1)
+              (> r2Val r1Val) (assoc-in machine [:registers 0xF] 1)
               :else (assoc-in machine [:registers 0xF] 0))
             [:registers r1]
             subVal))))
@@ -249,17 +249,19 @@
 
 ;; Ex9E
 (defn skip-if-keypressed
-  [machine keypressed? key-code key-symbol]
-  (cond
-    (and keypressed? (= (keycodes key-symbol) key-code)) (incpc (incpc machine))
-    :else (incpc machine)))
+  [machine keypressed? register key-symbol]
+  (let [key-code ((machine :registers) register)]
+    (cond
+      (and keypressed? (= (keycodes key-symbol) key-code)) (incpc (incpc machine))
+      :else (incpc machine))))
 
 ;; ExA1
 (defn skip-if-not-keypressed
-  [machine keypressed? key-code key-symbol]
-  (cond
-    (not (and keypressed? (= (keycodes key-symbol) key-code))) (incpc (incpc machine))
-    :else (incpc machine)))
+  [machine keypressed? register key-symbol]
+  (let [key-code ((machine :registers) register)]
+    (cond
+      (not (and keypressed? (= (keycodes key-symbol) key-code))) (incpc (incpc machine))
+      :else (incpc machine))))
 
 ;; Fx07
 (defn loaddt
@@ -271,7 +273,7 @@
 (defn key-wait
   [machine register keypressed? key-symbol]
   (cond
-    keypressed? (incpc (assoc-in machine [:registers register] (keycodes key-symbol)))
+    (and keypressed? (contains? keycodes key-symbol)) (incpc (assoc-in machine [:registers register] (keycodes key-symbol)))
     :else machine))
 
 ;; set DT from register value
@@ -505,8 +507,10 @@
 (defn delay-tick
   [machine keypressed? key-symbol]
   (let [dt (machine :dt)]
+
+
     (cond
-      (> dt 0) (update machine :dt dec)
+      (> dt 0) (update (tick machine keypressed? key-symbol) :dt dec)
       :else (tick machine keypressed? key-symbol))))
 
 
@@ -561,6 +565,16 @@
         gameMem (copy-into initmemory gameVec)]
     (assoc chip8 :memory gameMem)))
 
+
+(defn setup-game
+  [game-name]
+  (fn []
+    (q/frame-rate 500)
+    (q/background 255)
+    (let [gameVec (getByteVector (str "/home/ronbrz/code/chip8/games/" game-name))
+          gameMem (copy-into initmemory gameVec)]
+      (assoc chip8 :memory gameMem))))
+
 (defn draw-display
   [machine]
   (let [display (machine :display)
@@ -578,19 +592,18 @@
             yCoord (* y 10)]
         (cond
           (= pixel 1) (let [width 10]
-                        (println xCoord yCoord)
                         (q/rect xCoord yCoord width width)))))))
 
 (defn update-machine
   [machine]
-  (tick machine q/key-pressed? q/key-as-keyword))
-  (delay-tick machine q/key-pressed? q/key-as-keyword))
+  (delay-tick machine (q/key-pressed?) (q/key-as-keyword)))
 
 (defn -main [& args]
+  (println args)
   (q/sketch
    :host "host"
    :size [width height]
-   :setup setup
+   :setup (setup-game (nth args 0))
    :update update-machine
    :draw draw-display
    :middleware [m/fun-mode]))
