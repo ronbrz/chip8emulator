@@ -1,4 +1,5 @@
-(ns chip8emu.core)
+(ns chip8emu.core
+  (:gen-class))
 
 (def clear-display (vec (repeat 32 (vec (repeat 64 0)))));; 64x32 display initialized to 0;
 

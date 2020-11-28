@@ -45,7 +45,7 @@
 (defn setup-game
   [game-path]
   (fn []
-    (q/frame-rate 300)
+    (q/frame-rate 250)
     (q/background 255)
     (let [gameVec (getByteVector game-path)
           gameMem (copy-into initmemory gameVec)]

@@ -1,4 +1,5 @@
 (ns chip8emu.main
+  (:gen-class)
   (:require [clojure.java.io :as io]
             [clojure.string :as string]
             [clojure.tools.cli :refer [parse-opts]]
