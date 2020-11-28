@@ -1,8 +1,5 @@
-(ns chip8emu.core
-  (:gen-class)
-  (:require [clojure.java.io :as io]
-            [quil.core :as q :include-macros true]
-            [quil.middleware :as m]))
+(ns chip8emu.core)
+
 
 (def memory (vec (repeat 512 0))) ;; first 512 bytes reserved for interpreter
 ;; (into (vec (repeat 63 0)) (vec (file->bytes game))) ; append game data to vector
@@ -12,7 +9,7 @@
 (def dt 0); delay timer
 (def st 0); sound timer
 (def stack (list)) ; list of numbers
-                   ;
+                                        ;
 (def clear-display (vec (repeat 32 (vec (repeat 64 0)))));; 64x32 display initialized to 0;
 (def full-display (vec (repeat 32 (vec (repeat 64 1)))))
 ;; millis
@@ -60,7 +57,8 @@
 (defn incpc [machine]
   (update machine :pc #(+ 2 %)))
 
-
+(defn set-register [machine reg val]
+  (assoc-in machine [:registers reg] val))
 ;;;;;;;;;;;;;;;; Chip-8 instructions ;;;;;;;;;;;;;;;;
 
 ;;; ignored
@@ -87,7 +85,7 @@
 ;;; call subroutine at addr
 ;;; 2nnn
 (defn call [machine addr]
-  (assoc (update machine :stack conj (machine :pc)) :pc addr))
+  (assoc (update machine :stack conj (machine :pc)) :pc addr)) ;inc pc ?
 
 ;;; skip next instruction if register value equals passed value
 ;;; 3xkk
@@ -323,8 +321,7 @@
   [machine topr]
   (let [registers (machine :registers)
         iAddr    (machine :i)
-        copiedRegisters (take (inc topr) registers)
-
+        copiedRegisters (take (inc topr) registers) ;; extra?
         iAddrs (iterate inc iAddr)
         toAssign (interleave iAddrs copiedRegisters)
         newMemory (apply assoc (machine :memory) toAssign)]
@@ -371,7 +368,6 @@
 
 ;; draw sprite to screen
 ;; Dxyn
-;; TODO: only set to unset should flip VF
 (defn draw
   [machine Vx Vy numBytes]
   (let [iAddr (machine :i)
@@ -503,107 +499,10 @@
       0xE (e-ops machine command keypressed? key-symbol)
       0xF (f-ops machine command keypressed? key-symbol))))
 
-
 (defn delay-tick
   [machine keypressed? key-symbol]
   (let [dt (machine :dt)]
-
-
     (cond
       (> dt 0) (update (tick machine keypressed? key-symbol) :dt dec)
       :else (tick machine keypressed? key-symbol))))
 
-
-
-;;;;;;;;;;;;;;;; TODO ;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;; all arithmatic operations should be masked with 0xFF
-
-(defn file->bytes [file]
-  (with-open [xin (io/input-stream file)
-              xout (java.io.ByteArrayOutputStream.)]
-    (io/copy xin xout)
-    (.toByteArray xout)))
-
-
-;; get commands from bytes
-;;(map #(Integer/toString (Byte/toUnsignedInt (nth memory %)) 16) (range 100))
-;;
-
-;; separate byte array into 4 bit chunks
-(defn fourbits [barr]
-  (mapcat (fn [a] [(bit-shift-right a 4) (bit-and 2r1111 a)]) barr))
-
-
-(defn printBytes [barr]
-  (dorun (map #(println (Integer/toUnsignedString % 2)) barr)))
-
-(defn printHex [barr]
-  (dorun (map #(println (Integer/toUnsignedString % 16))  barr)))
-
-(defn copy-into
-  [v1 v2]
-  (let [intSpace (take 512 v1)
-        zeroRest (- 4095 (count v2))]
-    (vec (concat intSpace v2 (repeat zeroRest 0)))))
-
-
-;; (defn -main
-;;   "I don't do a whole lot ... yet."
-;;   [& args]
-;;   (printHex (file->bytes "/home/ronbrz/code/chip8/games/MAZE")))
-(def width 640)
-(def height 320)
-
-(defn getByteVector
-  [gamePath]
-  (vec (map #(Byte/toUnsignedInt %) (file->bytes gamePath))))
-
-(defn setup []
-  (q/frame-rate 150)
-  (q/background 255)
-  (let [gameVec (getByteVector "/home/ronbrz/code/chip8/games/BLINKY")
-        gameMem (copy-into initmemory gameVec)]
-    (assoc chip8 :memory gameMem)))
-
-
-(defn setup-game
-  [game-name]
-  (fn []
-    (q/frame-rate 500)
-    (q/background 255)
-    (let [gameVec (getByteVector (str "/home/ronbrz/code/chip8/games/" game-name))
-          gameMem (copy-into initmemory gameVec)]
-      (assoc chip8 :memory gameMem))))
-
-(defn draw-display
-  [machine]
-  (let [display (machine :display)
-        pc      (machine :pc)
-        c1      ((machine :memory) pc)
-        c2      ((machine :memory) (inc pc))]
-    (q/background 255)
-    (q/fill 0)
-    ;(println (Integer/toUnsignedString c1 16) (Integer/toUnsignedString c2 16))
-    ;(println "stack: " (machine :stack))
-    (doseq [x (range 64)
-            y (range 32)]
-      (let [pixel ((display y) x)
-            xCoord (* x 10)
-            yCoord (* y 10)]
-        (cond
-          (= pixel 1) (let [width 10]
-                        (q/rect xCoord yCoord width width)))))))
-
-(defn update-machine
-  [machine]
-  (delay-tick machine (q/key-pressed?) (q/key-as-keyword)))
-
-(defn -main [& args]
-  (println args)
-  (q/sketch
-   :host "host"
-   :size [width height]
-   :setup (setup-game (nth args 0))
-   :update update-machine
-   :draw draw-display
-   :middleware [m/fun-mode]))
