@@ -43,11 +43,11 @@
     (vec (concat intSpace v2 (repeat zeroRest 0)))))
 
 (defn setup-game
-  [game-name]
+  [game-path]
   (fn []
     (q/frame-rate 300)
     (q/background 255)
-    (let [gameVec (getByteVector (str "/home/ronbrz/code/chip8/games/" game-name))
+    (let [gameVec (getByteVector game-path)
           gameMem (copy-into initmemory gameVec)]
       (assoc chip8 :memory gameMem))))
 

@@ -1,20 +1,7 @@
 (ns chip8emu.core)
 
-
-(def memory (vec (repeat 512 0))) ;; first 512 bytes reserved for interpreter
-;; (into (vec (repeat 63 0)) (vec (file->bytes game))) ; append game data to vector
-(def registers (vec (repeat 16 0)))
-(def program-counter 0)
-(def I 0) ;; register
-(def dt 0); delay timer
-(def st 0); sound timer
-(def stack (list)) ; list of numbers
-                                        ;
 (def clear-display (vec (repeat 32 (vec (repeat 64 0)))));; 64x32 display initialized to 0;
-(def full-display (vec (repeat 32 (vec (repeat 64 1)))))
-;; millis
-;; (System/currentTimeMillis)
-;;
+
 ;; keys used for keyboard
 (def keycodes {
                :1 0x1 :2 0x2 :3 0x3 :4 0xC
@@ -41,7 +28,9 @@
 (def F     [0xF0 0x80 0xF0 0x80 0x80])
 
 ;; memory is defined as a vector full of numbers, each number being a byte
-(def initmemory (vec (concat zero one two three four five six seven eight nine A B C D E F (repeat 4016 0))))
+(def initmemory (vec (concat zero one two three four
+                             five six seven eight nine
+                             A B C D E F (repeat 4016 0))))
 
 ;; entire initial machine state
 (def chip8 {:memory initmemory
@@ -59,7 +48,10 @@
 
 (defn set-register [machine reg val]
   (assoc-in machine [:registers reg] val))
+
 ;;;;;;;;;;;;;;;; Chip-8 instructions ;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 
 ;;; ignored
 ;;; 0NNN
@@ -85,7 +77,7 @@
 ;;; call subroutine at addr
 ;;; 2nnn
 (defn call [machine addr]
-  (assoc (update machine :stack conj (machine :pc)) :pc addr)) ;inc pc ?
+  (assoc (update machine :stack conj (machine :pc)) :pc addr))
 
 ;;; skip next instruction if register value equals passed value
 ;;; 3xkk
@@ -226,7 +218,6 @@
 ;; set i register
 ;; Annn
 (defn set-i [machine addr]
-  (println "i: " (Integer/toUnsignedString addr 16))
   (incpc (assoc machine :i addr)))
 
 
@@ -309,12 +300,6 @@
              [:memory (inc iAddr)] tens)
             [:memory (+ 2 iAddr)] ones))))
 
-;;;;;;;; helper
-(defn copy-first-n
-  [vec1 vec2 n]
-  (let [numTake (inc n)]
-    (vec (concat (take numTake vec2) (drop numTake vec1)))))
-
 ;; store values from V0 to Vx in i0 to ix
 ;; Fx55
 (defn load-to-i
@@ -354,8 +339,6 @@
       :else (update (xor-y-positions screen (rest sprite) xCoord (inc yCoord))
                     index xor-positions (first sprite) xCoord))))
 
-
-
 (defn unset-bit-h
   [before-v after-v]
   (not-every? false? (map (fn [b a] (and (= b 1) (= a 0))) before-v after-v)))
@@ -364,7 +347,6 @@
 (defn unset-bits
   [before-screen after-screen]
   (not-every? false? (map unset-bit-h before-screen after-screen)))
-
 
 ;; draw sprite to screen
 ;; Dxyn
@@ -435,6 +417,9 @@
         byte2 ((machine :memory) (inc (machine :pc)))]
     (two-bytes-four-bits byte1 byte2)))
 
+;;;;;;;;;;;;;;;; Mapping functions to hex codes ;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (defn zero-ops
   [machine [b1 b2 b3 b4]]
   (case b4
@@ -475,12 +460,9 @@
       0x55 (load-to-i machine b2)
       0x65 (read-from-i machine b2))))
 
-
-;; TODO : if waiting dont tick
 (defn tick
   [machine keypressed? key-symbol]
   (let [[b1 b2 b3 b4 :as command] (get-opcode machine)]
-    (println "cmd: " (map #(Integer/toUnsignedString % 16) command))
     (case b1
       0x0 (zero-ops machine command)
       0x1 (jp machine (append-bytes b2 b3 b4))
